@@ -1,0 +1,12 @@
+[app]
+name  = "pay-service"
+image = "ghcr.io/dotlabshq/pay-service:0.1.0"
+
+# pay-service = the payment-collection capability lego (ADR-010). Org-scoped over
+# the shared foldbase (tenant = org id, set per request); verifies membership via
+# org-service and resolves the customer via customers-service. Charges are
+# idempotent by the caller's idempotency key. Built-in providers: manual + mock;
+# real gateways (Stripe, …) plug in as more providers.
+[env]
+# FOLDBASE_SERVICE_URL, FOLDBASE_TOKEN — injected at deploy.
+# ORG_SERVICE_URL, CUSTOMERS_SERVICE_URL — injected via service bindings.

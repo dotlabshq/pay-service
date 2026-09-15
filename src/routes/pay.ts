@@ -30,20 +30,27 @@ export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: st
   const app = new Hono()
   app.use('*', requireAuth)
   app.use('*', async (c, next) => {
-    const orgId = c.req.header('X-Org-Id')
-    if (!orgId) return c.json({ error: 'org_required', message: 'Missing X-Org-Id — run `use <org>` first' }, 400)
+    // `X-Org-Id` may carry an id, a slug or a short id (ADR-042 §3), and the org
+    // id is also the storage tenant — so the header is resolved before anything
+    // is stored against it. Taken verbatim, `acme` and the org's real id would
+    // be two separate tenants for one organization, and which one you saw would
+    // depend on which client wrote last.
+    const orgRef = c.req.header('X-Org-Id')
+    if (!orgRef) return c.json({ error: 'org_required', message: 'Missing X-Org-Id — run `use <org>` first' }, 400)
     const bearer = c.req.header('Authorization')!.slice(7)
     // Service tokens (plane-signed, e.g. stripe-service reconciling a webhook) are
     // trusted callers: skip the per-user membership check and act on the given org.
     if ((c.get('auth') as { tokenType?: string } | undefined)?.tokenType === 'service') {
-      c.set('orgId' as never, orgId as never); c.set('bearer' as never, bearer as never)
+      // A service skips the membership check and therefore the resolution
+      // above: it must name the org by its id.
+      c.set('orgId' as never, orgRef as never); c.set('bearer' as never, bearer as never)
       return next()
     }
     const org = createOrgClient({ baseUrl: orgBaseUrl, token: bearer })
     try {
-      const { role } = await org.effectiveRole(orgId)
+      const { role, via } = await org.effectiveRole(orgRef)
       if (role === 'none') return c.json({ error: 'forbidden', message: 'Not a member of this org' }, 403)
-      c.set('orgId' as never, orgId as never)
+      c.set('orgId' as never, (via?.scopeId ?? orgRef) as never)
       c.set('bearer' as never, bearer as never)
     } catch (e) {
       if (e instanceof OrgError && e.status === 404) return c.json({ error: 'org_not_found', message: 'Active org does not exist — run `use <org>`' }, 404)

@@ -24,8 +24,15 @@ function fail(err: unknown): never {
   throw new StoreError(500, 'internal', (err as Error).message)
 }
 
-/** Payment routes. Auth: identity JWT + X-Org-Id, org membership via org-service.
- *  Charges resolve + snapshot the customer against customers-service. */
+/**
+ * Payment routes. Auth: identity JWT + X-Org-Id, org membership via org-service.
+ * Charges resolve + snapshot the customer against customers-service.
+ *
+ * Routes live at the service ROOT. A gateway publishes the realm at
+ * `/v1/pay/...` and strips that prefix (ADR-042 §4), so the service never
+ * encodes where it happens to be mounted; app.ts also mounts them under `/v1`
+ * for callers that predate the gateway.
+ */
 export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: string) {
   const app = new Hono()
   app.use('*', requireAuth)
@@ -73,15 +80,15 @@ export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: st
     }
   }
 
-  app.get('/v1/payments', async (c) => {
+  app.get('/payments', async (c) => {
     const status = c.req.query('status'); const customer = c.req.query('customer')
     return c.json({ payments: await store.listPayments(orgOf(c), { ...(status ? { status } : {}), ...(customer ? { customerId: customer } : {}) }) })
   })
-  app.get('/v1/payments/:ref', async (c) => {
+  app.get('/payments/:ref', async (c) => {
     const payment = await store.getPayment(orgOf(c), c.req.param('ref'))
     return payment ? c.json({ payment }) : c.json({ error: 'not_found', message: 'Payment not found' }, 404)
   })
-  app.post('/v1/payments', zValidator('json', Charge), async (c) => {
+  app.post('/payments', zValidator('json', Charge), async (c) => {
     const body = c.req.valid('json')
     // The record-only outcome fields (status/providerRef/failureReason) assert that
     // an EXTERNAL provider already collected money. Only a plane service (e.g.

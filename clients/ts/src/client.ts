@@ -31,6 +31,11 @@ export interface HttpClient {
 }
 
 /** Typed HTTP client for pay-service (payment collection). */
+/**
+ * Paths here are the service's own — `/payments`, not `/v1/payments`. A gateway
+ * publishes the service at `/v1/<name>` and strips that prefix (ADR-042 §4), so
+ * the client says what the service serves and `baseUrl` says where it is.
+ */
 export class PayClient {
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
@@ -81,17 +86,17 @@ export class PayClient {
 
   /** Charge a customer against a provider. Idempotent by `idempotencyKey`. */
   async charge(input: ChargeInput): Promise<Payment> {
-    return (await this.api<{ payment: Payment }>('POST', '/v1/payments', input)).payment
+    return (await this.api<{ payment: Payment }>('POST', '/payments', input)).payment
   }
   async list(opts: { status?: string; customerId?: string } = {}): Promise<Payment[]> {
     const q = new URLSearchParams()
     if (opts.status) q.set('status', opts.status)
     if (opts.customerId) q.set('customer', opts.customerId)
     const qs = q.toString()
-    return (await this.api<{ payments: Payment[] }>('GET', `/v1/payments${qs ? `?${qs}` : ''}`)).payments
+    return (await this.api<{ payments: Payment[] }>('GET', `/payments${qs ? `?${qs}` : ''}`)).payments
   }
   async get(ref: string): Promise<Payment> {
-    return (await this.api<{ payment: Payment }>('GET', `/v1/payments/${ref}`)).payment
+    return (await this.api<{ payment: Payment }>('GET', `/payments/${ref}`)).payment
   }
 }
 

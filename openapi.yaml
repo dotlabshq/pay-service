@@ -1,0 +1,207 @@
+openapi: 3.1.0
+info:
+  title: pay-service
+  version: "1.0"
+  description: |
+    Money collected. One record per charge, scoped to an organization.
+
+    **A charge is idempotent by key.** `idempotencyKey` is hashed into the
+    stream id, so re-sending the same key returns the charge that already
+    exists rather than taking the money twice. A network that times out after
+    the charge succeeded is the normal case, not the exotic one.
+
+    **Providers.** `manual` and `mock` resolve synchronously here — `manual` is
+    money that arrived some other way and is being written down, `mock` is for
+    exercising a flow. `stripe` means the charge already happened off-band, and
+    the caller supplies the outcome for this service to record as it was; a
+    service that did not run the charge must not invent its result.
+
+    Nothing here knows what anything costs. That is catalog's and invoice's
+    business; this service records what was collected.
+
+    **Every request names an org.** `X-Org-Id` carries it — an id, a slug or a
+    short id — and this service asks org-service whether the caller is a member.
+    The resolved org id is also the storage tenant.
+
+    Routes live at the service root; a gateway publishes them at `/v1/pay/...`
+    and strips that prefix (ADR-042 §4). `/v1` is also mounted here for callers
+    that predate the gateway.
+
+servers:
+  - url: https://example.com/v1/pay
+    description: Behind a gateway
+  - url: http://127.0.0.1:3011
+    description: Direct, for local development
+
+tags:
+  - name: discovery
+  - name: payments
+
+security:
+  - bearer: []
+
+paths:
+  /healthz:
+    get:
+      tags: [discovery]
+      summary: Liveness
+      security: []
+      responses:
+        "200": { description: ok }
+
+  /.well-known/service:
+    get:
+      tags: [discovery]
+      summary: What this service is
+      security: []
+      responses:
+        "200":
+          description: The manifest
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceManifest" }
+
+  /payments:
+    get:
+      tags: [payments]
+      summary: List charges
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/Status" } }
+        - { name: customerId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Charges, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payments:
+                    type: array
+                    items: { $ref: "#/components/schemas/Payment" }
+        "400": { description: org_required — no X-Org-Id }
+        "403": { description: Not a member of this org }
+    post:
+      tags: [payments]
+      summary: Charge
+      description: |
+        Idempotent by `idempotencyKey`: the same key answers with the charge
+        that already exists, with the status it already had. Choose a key that
+        identifies the attempt — an invoice id and a sequence, say — not a
+        random one per request, or a retry becomes a second charge.
+
+        `invoiceId` is what this is being collected against, if anything.
+        pay-service does not check it against invoice-service; whoever is
+        reconciling the two owns that.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, amountCents, currency, idempotencyKey]
+              properties:
+                customerId:
+                  type: string
+                  description: A customer reference, resolved against customers-service.
+                amountCents: { type: integer, minimum: 1 }
+                currency: { type: string, minLength: 3, maxLength: 3 }
+                invoiceId: { type: string }
+                provider: { $ref: "#/components/schemas/Provider" }
+                idempotencyKey: { type: string }
+                simulateFailure:
+                  type: boolean
+                  description: Built-in providers only. Makes the charge fail, for exercising the unhappy path.
+                status:
+                  $ref: "#/components/schemas/Status"
+                  description: |
+                    External providers only. The outcome that already happened,
+                    recorded as given.
+                providerRef: { type: string }
+                failureReason: { type: string }
+      responses:
+        "201":
+          description: Charged — or the charge this key already made
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment: { $ref: "#/components/schemas/Payment" }
+        "400": { description: Malformed body, or a non-positive amount }
+        "403": { description: |
+            `status`, `providerRef` and `failureReason` assert that money already
+            changed hands elsewhere. Only a service token may set them — a person
+            who could would be writing a succeeded payment without collecting.
+          }
+        "404": { description: customer_not_found }
+        "400": { description: Malformed body, or a non-positive amount }
+
+  /payments/{ref}:
+    parameters:
+      - name: ref
+        in: path
+        required: true
+        schema: { type: string }
+        description: The id, the short id, or the idempotency key.
+    get:
+      tags: [payments]
+      summary: One charge
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment: { $ref: "#/components/schemas/Payment" }
+        "404": { description: No such charge in this org }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Status:
+      type: string
+      enum: [succeeded, failed]
+
+    Provider:
+      type: string
+      enum: [manual, mock, stripe]
+
+    Payment:
+      type: object
+      required: [id, shortId, amountCents, currency, status, provider]
+      properties:
+        id: { type: string }
+        shortId: { type: string }
+        customerId: { type: string }
+        customerName:
+          type: [string, "null"]
+          description: As it was when the charge was recorded.
+        amountCents: { type: integer }
+        currency: { type: string }
+        invoiceId: { type: [string, "null"] }
+        provider: { $ref: "#/components/schemas/Provider" }
+        providerRef: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/Status" }
+        failureReason: { type: [string, "null"] }
+        idempotencyKey: { type: string }
+        createdAt: { type: integer }
+
+    ServiceManifest:
+      type: object
+      required: [name, version, api_version]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        api_version: { type: string }
+        openapi_url: { type: string }
+        capabilities:
+          type: array
+          items: { type: string }

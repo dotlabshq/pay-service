@@ -27,9 +27,26 @@ so re-charging with the same key returns the existing payment — never a double
 
 | Method | Path | |
 |---|---|---|
-| `GET` | `/v1/payments` | list (`?status`, `?customer`) |
-| `GET` | `/v1/payments/:ref` | one payment (id / short_id / idempotency_key) |
-| `POST` | `/v1/payments` | charge a customer (resolves the customer, idempotent) |
+| `GET` | `/payments` | list (`?status`, `?customer`) |
+| `GET` | `/payments/:ref` | one payment (id / short_id / idempotency_key) |
+| `POST` | `/payments` | charge a customer (resolves the customer, idempotent) |
+
+## The org is resolved, not taken at its word
+
+`X-Org-Id` may name an organization by id, slug or short id (ADR-042 §3). The
+org id is also the storage tenant, and idempotency keys are unique *per tenant*,
+so taking the header verbatim would let one organization's key collide with
+nothing and charge twice.
+
+The PDP answers with the scope it resolved, and that canonical id is what this
+service stores against.
+
+## An outcome is asserted by whoever collected it
+
+`status`, `providerRef` and `failureReason` say that money already changed hands
+somewhere else. Only a **service token** may set them. A person who could would
+be writing a succeeded payment into the ledger without collecting anything, so
+the console never sends them and the service refuses them.
 
 ## Env
 

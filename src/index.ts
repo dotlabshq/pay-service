@@ -16,7 +16,7 @@ function resolveBase(name: string, gatewayPath: string): string {
   return url
 }
 const orgBaseUrl = resolveBase('org', '/org')
-const customersBaseUrl = resolveBase('customers', '')
+const customersBaseUrl = resolveBase('customers', '/customers')
 
 const root = new Hono()
 root.use('*', logger())

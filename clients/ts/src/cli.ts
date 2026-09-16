@@ -43,7 +43,7 @@ export function buildPayCommand(deps: PayCliDeps): Command {
     if (opts.status) q.set('status', opts.status)
     if (opts.customer) q.set('customer', opts.customer)
     const qs = q.toString()
-    const res = await http.get<{ payments: PayRow[] }>(`/v1/payments${qs ? `?${qs}` : ''}`).catch(die)
+    const res = await http.get<{ payments: PayRow[] }>(`/payments${qs ? `?${qs}` : ''}`).catch(die)
     printOutput(res.payments, opts.output, (wide) => {
       table(res.payments, [
         { key: 'shortId', label: 'ID' },
@@ -81,7 +81,7 @@ export function buildPayCommand(deps: PayCliDeps): Command {
         ...(o.invoice ? { invoiceId: o.invoice } : {}),
         ...(o.fail ? { simulateFailure: true } : {}),
       }
-      const res = await http.post<{ payment: PayRow }>('/v1/payments', body).catch(die)
+      const res = await http.post<{ payment: PayRow }>('/payments', body).catch(die)
       const p = res.payment
       if (p.status === 'succeeded') success(`Charged ${fmtMoney(p.amountCents, p.currency)} — ${p.status}`)
       else console.log(`  ✗ Payment ${p.status}: ${p.failureReason ?? ''}`)
@@ -89,7 +89,7 @@ export function buildPayCommand(deps: PayCliDeps): Command {
     }))
   cmd.addCommand(new Command('get').argument('<ref>').description('Show a payment').option(...outputOption())
     .action(async (ref: string, o: { output: string }) => {
-      const res = await http.get<{ payment: PayRow }>(`/v1/payments/${ref}`).catch(die)
+      const res = await http.get<{ payment: PayRow }>(`/payments/${ref}`).catch(die)
       const p = res.payment
       printOutput(p as unknown as Record<string, unknown>, o.output, () => kv([
         ['id', p.shortId], ['customer', p.customerName ?? p.customerId], ['amount', fmtMoney(p.amountCents, p.currency)],

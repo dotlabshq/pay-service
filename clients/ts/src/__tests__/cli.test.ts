@@ -22,13 +22,13 @@ const PAID = { id: 'pay-1', shortId: 'py1', customerName: 'Acme', customerId: 'c
 
 describe('dtab payments', () => {
   it('lists with amount + status', async () => {
-    mocks.mockGet('/v1/payments', { payments: [PAID] })
+    mocks.mockGet('/payments', { payments: [PAID] })
     const r = await run(['payments'])
     expect(r.exitCode).toBe(0)
     expect(r.stdout).toContain('py1'); expect(r.stdout).toContain('50.00 USD'); expect(r.stdout).toContain('succeeded')
   })
   it('charge parses --amount → cents and sends the idempotency key', async () => {
-    const cap = mocks.mockPostCapture('/v1/payments', { payment: PAID })
+    const cap = mocks.mockPostCapture('/payments', { payment: PAID })
     const r = await run(['payments', 'charge', '--customer', 'c-1', '--amount', '50.00', '--key', 'k-1'])
     expect(r.exitCode).toBe(0)
     const b = cap.body as Record<string, unknown>
@@ -36,7 +36,7 @@ describe('dtab payments', () => {
     expect(r.stdout).toContain('succeeded')
   })
   it('charge --fail sends simulateFailure and shows the decline', async () => {
-    const cap = mocks.mockPostCapture('/v1/payments', { payment: { ...PAID, status: 'failed', failureReason: 'card_declined' } })
+    const cap = mocks.mockPostCapture('/payments', { payment: { ...PAID, status: 'failed', failureReason: 'card_declined' } })
     const r = await run(['payments', 'charge', '--customer', 'c-1', '--amount', '50.00', '--key', 'k-2', '--fail'])
     expect(r.exitCode).toBe(0)
     expect((cap.body as Record<string, unknown>).simulateFailure).toBe(true)

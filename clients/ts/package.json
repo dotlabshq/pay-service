@@ -1,6 +1,6 @@
 {
   "name": "@baseworks/pay",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Payments capability: typed HTTP client, event catalog, projections, and CLI plugin for pay-service (idempotent charges against a pluggable provider). Contract-first, versioned with the service.",
   "type": "module",
   "publishConfig": {
@@ -11,7 +11,8 @@
     "./events": "./dist/events.js",
     "./projections": "./dist/projections.js",
     "./cli": "./dist/cli.js",
-    "./graphql": "./dist/graphql.js"
+    "./graphql": "./dist/graphql.js",
+    "./mcp": "./dist/mcp.js"
   },
   "files": [
     "dist",
@@ -27,7 +28,8 @@
     "@baseworks/cli": "^0.2.0",
     "@baseworks/foldbase": "workspace:*",
     "commander": "^15.0.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "@baseworks/mcp": "^0.1.2"
   },
   "devDependencies": {
     "@baseworks/tsconfig": "workspace:*",
@@ -35,6 +37,15 @@
     "msw": "^2.14.6",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
   }
 }

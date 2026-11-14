@@ -15,7 +15,7 @@ let restore: ReturnType<typeof fakeOrgService> | undefined
 const json = async <T>(res: Response) => (await res.json()) as T
 const CUSTOMERS = { 'cus-1': { id: 'cus-1', name: 'Acme' } }
 const as = (role: string, o: FakeOrgOptions = {}) => { restore?.(); restore = fakeOrgService({ [orgId]: role }, { customers: CUSTOMERS, ...o }) }
-const charge = (key: string) => ({ customerId: 'cus-1', amountCents: 100, currency: 'USD', idempotencyKey: key })
+const charge = (key: string) => ({ customer_id: 'cus-1', amount_cents: 100, currency: 'USD', idempotency_key: key })
 
 beforeAll(async () => { fb = await bootTestFoldBase() }, 30_000)
 afterAll(async () => { await fb.stop() })

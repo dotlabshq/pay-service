@@ -9,17 +9,17 @@ import { PaymentEvents } from './events.js'
  */
 export const readPayments = defineProjection('payments', PaymentEvents, (on) => ({
   PaymentCharged: on.PaymentCharged.upsert((e) => ({
-    customer_id: e.customerId,
-    customer_name: e.customerName,
-    amount_cents: e.amountCents,
+    customer_id: e.customer_id,
+    customer_name: e.customer_name,
+    amount_cents: e.amount_cents,
     currency: e.currency,
-    invoice_id: e.invoiceId,
+    invoice_id: e.invoice_id,
     provider: e.provider,
-    provider_ref: e.providerRef,
+    provider_ref: e.provider_ref,
     status: e.status,
-    failure_reason: e.failureReason,
-    idempotency_key: e.idempotencyKey,
-    short_id: e.shortId,
+    failure_reason: e.failure_reason,
+    idempotency_key: e.idempotency_key,
+    short_id: e.short_id,
     created_at: e.at,
   })),
 }))

@@ -30,9 +30,9 @@ function toCents(amount: string, flag: string): number {
 }
 
 type PayRow = {
-  id: string; shortId: string; customerName: string | null; customerId: string
-  amountCents: number; currency: string; provider: string; status: string
-  invoiceId: string | null; providerRef: string; failureReason: string | null; idempotencyKey: string
+  id: string; short_id: string; customer_name: string | null; customer_id: string
+  amount_cents: number; currency: string; provider: string; status: string
+  invoice_id: string | null; provider_ref: string; failure_reason: string | null; idempotency_key: string
 }
 
 export function buildPayCommand(deps: PayCliDeps): Command {
@@ -46,12 +46,12 @@ export function buildPayCommand(deps: PayCliDeps): Command {
     const res = await http.get<{ payments: PayRow[] }>(`/payments${qs ? `?${qs}` : ''}`).catch(die)
     printOutput(res.payments, opts.output, (wide) => {
       table(res.payments, [
-        { key: 'shortId', label: 'ID' },
-        { key: 'customerName', label: 'CUSTOMER', fmt: (v, r) => (v as string) ?? (r as PayRow).customerId },
-        { key: 'amountCents', label: 'AMOUNT', fmt: (v, r) => fmtMoney(v as number, (r as PayRow).currency) },
+        { key: 'short_id', label: 'ID' },
+        { key: 'customer_name', label: 'CUSTOMER', fmt: (v, r) => (v as string) ?? (r as PayRow).customer_id },
+        { key: 'amount_cents', label: 'AMOUNT', fmt: (v, r) => fmtMoney(v as number, (r as PayRow).currency) },
         { key: 'provider', label: 'PROVIDER' },
         { key: 'status', label: 'STATUS' },
-        { key: 'invoiceId', label: 'INVOICE', fmt: (v) => (v as string) ?? '—' },
+        { key: 'invoice_id', label: 'INVOICE', fmt: (v) => (v as string) ?? '—' },
         { key: 'id', label: 'FULL ID', wide: true },
       ] as ColDef<PayRow>[], { wide, emptyHint: `No payments yet.  Run: ${cli} payments charge --customer <ref> --amount 50.00 --key <id>` })
       summary(`${res.payments.length} payment${res.payments.length !== 1 ? 's' : ''}`)
@@ -76,25 +76,25 @@ export function buildPayCommand(deps: PayCliDeps): Command {
     .option('--fail', 'Simulate a provider decline (test)')
     .action(async (o: { customer: string; amount: string; key: string; currency: string; provider: string; invoice?: string; fail?: boolean }) => {
       const body = {
-        customerId: o.customer, amountCents: toCents(o.amount, '--amount'), currency: o.currency,
-        provider: o.provider, idempotencyKey: o.key,
-        ...(o.invoice ? { invoiceId: o.invoice } : {}),
-        ...(o.fail ? { simulateFailure: true } : {}),
+        customer_id: o.customer, amount_cents: toCents(o.amount, '--amount'), currency: o.currency,
+        provider: o.provider, idempotency_key: o.key,
+        ...(o.invoice ? { invoice_id: o.invoice } : {}),
+        ...(o.fail ? { simulate_failure: true } : {}),
       }
       const res = await http.post<{ payment: PayRow }>('/payments', body).catch(die)
       const p = res.payment
-      if (p.status === 'succeeded') success(`Charged ${fmtMoney(p.amountCents, p.currency)} — ${p.status}`)
-      else console.log(`  ✗ Payment ${p.status}: ${p.failureReason ?? ''}`)
-      kv([['id', p.shortId], ['status', p.status], ['provider', p.provider], ['amount', fmtMoney(p.amountCents, p.currency)], ['provider_ref', p.providerRef]])
+      if (p.status === 'succeeded') success(`Charged ${fmtMoney(p.amount_cents, p.currency)} — ${p.status}`)
+      else console.log(`  ✗ Payment ${p.status}: ${p.failure_reason ?? ''}`)
+      kv([['id', p.short_id], ['status', p.status], ['provider', p.provider], ['amount', fmtMoney(p.amount_cents, p.currency)], ['provider_ref', p.provider_ref]])
     }))
   cmd.addCommand(new Command('get').argument('<ref>').description('Show a payment').option(...outputOption())
     .action(async (ref: string, o: { output: string }) => {
       const res = await http.get<{ payment: PayRow }>(`/payments/${ref}`).catch(die)
       const p = res.payment
       printOutput(p as unknown as Record<string, unknown>, o.output, () => kv([
-        ['id', p.shortId], ['customer', p.customerName ?? p.customerId], ['amount', fmtMoney(p.amountCents, p.currency)],
-        ['provider', p.provider], ['status', p.status], ['invoice', p.invoiceId ?? '—'],
-        ['provider_ref', p.providerRef], ['key', p.idempotencyKey], ['full_id', p.id],
+        ['id', p.short_id], ['customer', p.customer_name ?? p.customer_id], ['amount', fmtMoney(p.amount_cents, p.currency)],
+        ['provider', p.provider], ['status', p.status], ['invoice', p.invoice_id ?? '—'],
+        ['provider_ref', p.provider_ref], ['key', p.idempotency_key], ['full_id', p.id],
       ]), 'id')
     }))
   return cmd

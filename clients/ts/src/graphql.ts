@@ -34,9 +34,15 @@ export const resolvers = {
   Customer: {
     // pay-service supports a customer filter server-side (efficient).
     payments: (parent: { id: string }, { status }: { status?: string }, ctx: PayGraphContext) =>
-      ctx.pay.list({ customerId: parent.id, ...(status ? { status } : {}) }),
+      ctx.pay.list({ customer_id: parent.id, ...(status ? { status } : {}) }),
   },
+  // GraphQL names its fields in camelCase; the service's wire is snake_case.
   Payment: {
-    customer: (parent: Payment, _: unknown, ctx: PayGraphContext) => ctx.customerLoader.load(parent.customerId),
+    shortId: (p: Payment) => p.short_id,
+    amountCents: (p: Payment) => p.amount_cents,
+    providerRef: (p: Payment) => p.provider_ref,
+    invoiceId: (p: Payment) => p.invoice_id,
+    createdAt: (p: Payment) => p.created_at,
+    customer: (parent: Payment, _: unknown, ctx: PayGraphContext) => ctx.customerLoader.load(parent.customer_id),
   },
 }

@@ -18,7 +18,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
-const PAID = { id: 'pay-1', shortId: 'py1', customerName: 'Acme', customerId: 'c-1', amountCents: 5000, currency: 'USD', provider: 'manual', providerRef: 'manual:py1', status: 'succeeded', invoiceId: null, failureReason: null, idempotencyKey: 'k-1' }
+const PAID = { id: 'pay-1', short_id: 'py1', customer_name: 'Acme', customer_id: 'c-1', amount_cents: 5000, currency: 'USD', provider: 'manual', provider_ref: 'manual:py1', status: 'succeeded', invoice_id: null, failure_reason: null, idempotency_key: 'k-1' }
 
 describe('dtab payments', () => {
   it('lists with amount + status', async () => {
@@ -32,14 +32,14 @@ describe('dtab payments', () => {
     const r = await run(['payments', 'charge', '--customer', 'c-1', '--amount', '50.00', '--key', 'k-1'])
     expect(r.exitCode).toBe(0)
     const b = cap.body as Record<string, unknown>
-    expect(b.amountCents).toBe(5000); expect(b.idempotencyKey).toBe('k-1'); expect(b.provider).toBe('manual')
+    expect(b.amount_cents).toBe(5000); expect(b.idempotency_key).toBe('k-1'); expect(b.provider).toBe('manual')
     expect(r.stdout).toContain('succeeded')
   })
-  it('charge --fail sends simulateFailure and shows the decline', async () => {
-    const cap = mocks.mockPostCapture('/payments', { payment: { ...PAID, status: 'failed', failureReason: 'card_declined' } })
+  it('charge --fail sends simulate_failure and shows the decline', async () => {
+    const cap = mocks.mockPostCapture('/payments', { payment: { ...PAID, status: 'failed', failure_reason: 'card_declined' } })
     const r = await run(['payments', 'charge', '--customer', 'c-1', '--amount', '50.00', '--key', 'k-2', '--fail'])
     expect(r.exitCode).toBe(0)
-    expect((cap.body as Record<string, unknown>).simulateFailure).toBe(true)
+    expect((cap.body as Record<string, unknown>).simulate_failure).toBe(true)
     expect(r.stdout).toContain('failed'); expect(r.stdout).toContain('card_declined')
   })
   it('rejects a sub-cent --amount', async () => {

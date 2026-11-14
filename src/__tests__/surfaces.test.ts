@@ -19,7 +19,7 @@ afterAll(async () => { await fb.stop() })
 beforeEach(async () => { orgId = newOrgId(); app = await makeTestApp(fb, orgId); restore = fakeOrgService({ [orgId]: 'owner' }, { customers: CUSTOMERS }) })
 afterEach(() => restore())
 
-const charge = (key: string) => ({ customerId: 'c-1', amountCents: 500, currency: 'USD', idempotencyKey: key })
+const charge = (key: string) => ({ customer_id: 'c-1', amount_cents: 500, currency: 'USD', idempotency_key: key })
 
 describe('the API is under /api', () => {
   it('answers there, discovery and the contract included', async () => {

@@ -8,17 +8,39 @@ import { permit, type OrgAccess } from '../lib/org.js'
 import { StoreError, type Store } from '../store.js'
 
 const Charge = z.object({
-  customerId: z.string().min(1),
-  amountCents: z.number().int().positive(),
+  customer_id: z.string().min(1),
+  amount_cents: z.number().int().positive(),
   currency: z.string().length(3),
-  invoiceId: z.string().min(1).optional(),
+  invoice_id: z.string().min(1).optional(),
   provider: z.enum(['manual', 'mock', 'stripe']).optional(),
-  idempotencyKey: z.string().min(1),
-  simulateFailure: z.boolean().optional(),
+  idempotency_key: z.string().min(1),
+  simulate_failure: z.boolean().optional(),
   status: z.enum(['succeeded', 'failed']).optional(),
-  providerRef: z.string().optional(),
-  failureReason: z.string().optional(),
+  provider_ref: z.string().optional(),
+  failure_reason: z.string().optional(),
 })
+
+/**
+ * The wire is snake_case (ADR 0003). Until 0.3.0 this service spoke camelCase,
+ * and callers that still do (an older @baseworks/pay, stripe-service on it) are
+ * read the way they meant: the old names are renamed on the way in. Answers are
+ * snake_case only. To be removed once no caller sends them.
+ */
+const OLD_NAMES: Record<string, string> = {
+  customerId: 'customer_id', amountCents: 'amount_cents', invoiceId: 'invoice_id', idempotencyKey: 'idempotency_key',
+  simulateFailure: 'simulate_failure', providerRef: 'provider_ref', failureReason: 'failure_reason',
+}
+function renamed(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    const key = OLD_NAMES[k] ?? k
+    if (key in out && key !== k) continue // the new name wins when both are sent
+    out[key] = v
+  }
+  return out
+}
+const snakeBody = <T extends z.ZodTypeAny>(schema: T) => zValidator('json', z.preprocess(renamed, schema) as unknown as T)
 
 function fail(err: unknown): never {
   if (err instanceof StoreError) throw err
@@ -60,33 +82,33 @@ export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: st
   }
 
   app.get('/payments', permit(org, 'payment.read'), async (c) => {
-    const status = c.req.query('status'); const customer = c.req.query('customer')
-    return c.json({ payments: await store.listPayments(orgOf(c), { ...(status ? { status } : {}), ...(customer ? { customerId: customer } : {}) }) })
+    const status = c.req.query('status'); const customer = c.req.query('customer_id') ?? c.req.query('customer')
+    return c.json({ payments: await store.listPayments(orgOf(c), { ...(status ? { status } : {}), ...(customer ? { customer_id: customer } : {}) }) })
   })
   app.get('/payments/:ref', permit(org, 'payment.read'), async (c) => {
     const payment = await store.getPayment(orgOf(c), c.req.param('ref'))
     return payment ? c.json({ payment }) : c.json({ error: 'not_found', message: 'Payment not found' }, 404)
   })
-  app.post('/payments', permit(org, 'payment.charge'), zValidator('json', Charge), async (c) => {
+  app.post('/payments', permit(org, 'payment.charge'), snakeBody(Charge), async (c) => {
     const body = c.req.valid('json')
-    // The record-only outcome fields (status/providerRef/failureReason) assert that
+    // The record-only outcome fields (status, provider_ref, failure_reason) assert that
     // an EXTERNAL provider already collected money. Only a realm service (e.g.
     // stripe-service reconciling a webhook) may set them — otherwise a user, an
     // agent or a key could forge a `succeeded` payment in the ledger.
     const isService = c.get('principal').kind === 'service'
-    if (!isService && (body.status !== undefined || body.providerRef !== undefined || body.failureReason !== undefined)) {
-      return c.json({ error: 'forbidden', message: 'status/providerRef/failureReason are service-only' }, 403)
+    if (!isService && (body.status !== undefined || body.provider_ref !== undefined || body.failure_reason !== undefined)) {
+      return c.json({ error: 'forbidden', message: 'status/provider_ref/failure_reason are service-only' }, 403)
     }
-    const customer = await resolveCustomer(orgOf(c), c.get('realm_token'), body.customerId).catch(fail)
+    const customer = await resolveCustomer(orgOf(c), c.get('realm_token'), body.customer_id).catch(fail)
     const payment = await store.charge(orgOf(c), {
-      customerId: customer.id, customerName: customer.name,
-      amountCents: body.amountCents, currency: body.currency,
-      ...(body.invoiceId ? { invoiceId: body.invoiceId } : {}),
-      provider: body.provider ?? 'manual', idempotencyKey: body.idempotencyKey,
-      ...(body.simulateFailure ? { simulateFailure: true } : {}),
+      customer_id: customer.id, customer_name: customer.name,
+      amount_cents: body.amount_cents, currency: body.currency,
+      ...(body.invoice_id ? { invoice_id: body.invoice_id } : {}),
+      provider: body.provider ?? 'manual', idempotency_key: body.idempotency_key,
+      ...(body.simulate_failure ? { simulate_failure: true } : {}),
       ...(isService && body.status ? { status: body.status } : {}),
-      ...(isService && body.providerRef ? { providerRef: body.providerRef } : {}),
-      ...(isService && body.failureReason ? { failureReason: body.failureReason } : {}),
+      ...(isService && body.provider_ref ? { provider_ref: body.provider_ref } : {}),
+      ...(isService && body.failure_reason ? { failure_reason: body.failure_reason } : {}),
     }, auditOf(c, { org_id: orgOf(c) })).catch(fail)
     return c.json({ payment }, 201)
   })

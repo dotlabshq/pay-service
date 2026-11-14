@@ -5,10 +5,10 @@ import {
 
 type App = Awaited<ReturnType<typeof makeTestApp>>
 type Payment = {
-  id: string; shortId: string; customerId: string; customerName: string | null
-  amountCents: number; currency: string; invoiceId: string | null
-  provider: string; providerRef: string | null
-  status: string; failureReason: string | null; idempotencyKey: string
+  id: string; short_id: string; customer_id: string; customer_name: string | null
+  amount_cents: number; currency: string; invoice_id: string | null
+  provider: string; provider_ref: string | null
+  status: string; failure_reason: string | null; idempotency_key: string
 }
 
 let fb: TestFoldBase
@@ -22,11 +22,11 @@ const json = <T>(res: Response) => res.json() as Promise<T>
 let key = 0
 const charge = (over: Record<string, unknown> = {}, o?: { org?: string | null; token?: string }) =>
   app.post('/payments', {
-    customerId: 'cus_1',
-    amountCents: 9800,
+    customer_id: 'cus_1',
+    amount_cents: 9800,
     currency: 'EUR',
     provider: 'manual',
-    idempotencyKey: `k-${++key}`,
+    idempotency_key: `k-${++key}`,
     ...over,
   }, o)
 
@@ -68,13 +68,13 @@ describe('charges', () => {
     expect(res.status).toBe(201)
     const { payment } = await json<{ payment: Payment }>(res)
     expect(payment).toMatchObject({
-      customerId: 'cus_1', customerName: 'Acme GmbH',
-      amountCents: 9800, currency: 'EUR', provider: 'manual', status: 'succeeded',
+      customer_id: 'cus_1', customer_name: 'Acme GmbH',
+      amount_cents: 9800, currency: 'EUR', provider: 'manual', status: 'succeeded',
     })
   })
 
   it('a customer nobody has is 404, and nothing is recorded', async () => {
-    const res = await charge({ customerId: 'cus_ghost' })
+    const res = await charge({ customer_id: 'cus_ghost' })
     expect(res.status).toBe(404)
 
     const { payments } = await json<{ payments: Payment[] }>(await app.get('/payments'))
@@ -82,22 +82,22 @@ describe('charges', () => {
   })
 
   it('a zero or negative amount is refused', async () => {
-    expect((await charge({ amountCents: 0 })).status).toBe(400)
-    expect((await charge({ amountCents: -100 })).status).toBe(400)
+    expect((await charge({ amount_cents: 0 })).status).toBe(400)
+    expect((await charge({ amount_cents: -100 })).status).toBe(400)
   })
 
   it('reads back by id, short id and idempotency key', async () => {
-    const { payment } = await json<{ payment: Payment }>(await charge({ idempotencyKey: 'inv-1-attempt-1' }))
-    for (const ref of [payment.id, payment.shortId, 'inv-1-attempt-1']) {
+    const { payment } = await json<{ payment: Payment }>(await charge({ idempotency_key: 'inv-1-attempt-1' }))
+    for (const ref of [payment.id, payment.short_id, 'inv-1-attempt-1']) {
       const got = await json<{ payment: Payment }>(await app.get(`/payments/${ref}`))
       expect(got.payment.id, `ref=${ref}`).toBe(payment.id)
     }
   })
 
   it('a built-in provider can be made to fail, and the reason is kept', async () => {
-    const { payment } = await json<{ payment: Payment }>(await charge({ simulateFailure: true }))
+    const { payment } = await json<{ payment: Payment }>(await charge({ simulate_failure: true }))
     expect(payment.status).toBe('failed')
-    expect(payment.failureReason).toBe('card_declined')
+    expect(payment.failure_reason).toBe('card_declined')
   })
 })
 
@@ -108,8 +108,8 @@ describe('charges', () => {
 
 describe('charging twice with one key takes the money once', () => {
   it('answers with the charge that already exists', async () => {
-    const first = await json<{ payment: Payment }>(await charge({ idempotencyKey: 'same-key' }))
-    const second = await json<{ payment: Payment }>(await charge({ idempotencyKey: 'same-key' }))
+    const first = await json<{ payment: Payment }>(await charge({ idempotency_key: 'same-key' }))
+    const second = await json<{ payment: Payment }>(await charge({ idempotency_key: 'same-key' }))
     expect(second.payment.id).toBe(first.payment.id)
 
     const { payments } = await json<{ payments: Payment[] }>(await app.get('/payments'))
@@ -118,12 +118,12 @@ describe('charging twice with one key takes the money once', () => {
 
   it('and does not re-run the provider — a repeat of a failed charge stays failed', async () => {
     const failed = await json<{ payment: Payment }>(
-      await charge({ idempotencyKey: 'stubborn', simulateFailure: true }),
+      await charge({ idempotency_key: 'stubborn', simulate_failure: true }),
     )
     expect(failed.payment.status).toBe('failed')
 
     // The retry asks for success; the key already has an answer.
-    const retry = await json<{ payment: Payment }>(await charge({ idempotencyKey: 'stubborn' }))
+    const retry = await json<{ payment: Payment }>(await charge({ idempotency_key: 'stubborn' }))
     expect(retry.payment.status).toBe('failed')
     expect(retry.payment.id).toBe(failed.payment.id)
   })
@@ -133,8 +133,8 @@ describe('charging twice with one key takes the money once', () => {
     restoreOrg()
     restoreOrg = arrange({ [other]: 'owner' })
 
-    await charge({ idempotencyKey: 'shared' })
-    await charge({ idempotencyKey: 'shared' }, { org: other })
+    await charge({ idempotency_key: 'shared' })
+    await charge({ idempotency_key: 'shared' }, { org: other })
 
     const ours = await json<{ payments: Payment[] }>(await app.get('/payments'))
     const theirs = await json<{ payments: Payment[] }>(await app.get('/payments', { org: other }))
@@ -145,13 +145,13 @@ describe('charging twice with one key takes the money once', () => {
 
 // ── an external provider's outcome is recorded, not invented ─────────────────
 //
-// `status`, `providerRef` and `failureReason` assert that money already changed
+// `status`, `provider_ref` and `failure_reason` assert that money already changed
 // hands somewhere else. Whoever can set them can write a succeeded payment into
 // the ledger without collecting anything, so only a service may.
 
 describe("an outcome can only be asserted by whoever collected it", () => {
   it('a person is refused, whatever they claim', async () => {
-    const res = await charge({ provider: 'stripe', status: 'succeeded', providerRef: 'pi_forged' })
+    const res = await charge({ provider: 'stripe', status: 'succeeded', provider_ref: 'pi_forged' })
     expect(res.status).toBe(403)
     expect((await json<{ message: string }>(res)).message).toMatch(/service-only/)
 
@@ -161,11 +161,11 @@ describe("an outcome can only be asserted by whoever collected it", () => {
 
   it('a service may record what its provider actually did, as it was', async () => {
     const { payment } = await json<{ payment: Payment }>(await charge({
-      provider: 'stripe', status: 'failed', providerRef: 'pi_123', failureReason: 'insufficient_funds',
+      provider: 'stripe', status: 'failed', provider_ref: 'pi_123', failure_reason: 'insufficient_funds',
     }, { token: makeServiceToken('stripe-service') }))
 
     expect(payment).toMatchObject({
-      provider: 'stripe', status: 'failed', providerRef: 'pi_123', failureReason: 'insufficient_funds',
+      provider: 'stripe', status: 'failed', provider_ref: 'pi_123', failure_reason: 'insufficient_funds',
     })
   })
 })
@@ -178,13 +178,13 @@ describe('one organization, one record of what it collected', () => {
     restoreOrg()
     restoreOrg = arrange({ [other]: 'owner' })
 
-    await charge({ amountCents: 1000 })
-    await charge({ amountCents: 2000 }, { org: other })
+    await charge({ amount_cents: 1000 })
+    await charge({ amount_cents: 2000 }, { org: other })
 
     const ours = await json<{ payments: Payment[] }>(await app.get('/payments'))
     const theirs = await json<{ payments: Payment[] }>(await app.get('/payments', { org: other }))
-    expect(ours.payments.map((p) => p.amountCents)).toEqual([1000])
-    expect(theirs.payments.map((p) => p.amountCents)).toEqual([2000])
+    expect(ours.payments.map((p) => p.amount_cents)).toEqual([1000])
+    expect(theirs.payments.map((p) => p.amount_cents)).toEqual([2000])
   })
 
   it('a charge made under a slug is found under the id', async () => {

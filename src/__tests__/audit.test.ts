@@ -61,7 +61,7 @@ const READERS: Array<[string, () => string]> = [
 ]
 
 const charge = (key = `k-${++keyN}`, extra: Record<string, unknown> = {}) =>
-  ({ customerId: 'cus-1', amountCents: 1200, currency: 'EUR', idempotencyKey: key, ...extra })
+  ({ customer_id: 'cus-1', amount_cents: 1200, currency: 'EUR', idempotency_key: key, ...extra })
 
 async function call(method: string, path: string, token: string, body?: unknown, org = orgId) {
   const id = `req-audit-${String(++reqN).padStart(4, '0')}`
@@ -126,7 +126,7 @@ describe('another organization\'s credential', () => {
 })
 
 describe('the outcome fields are a service\'s alone', () => {
-  const claim = { status: 'succeeded', providerRef: 'pi_1', provider: 'stripe' }
+  const claim = { status: 'succeeded', provider_ref: 'pi_1', provider: 'stripe' }
 
   it('a person, a write token, an agent and a key are refused, and nothing is stored', async () => {
     const before = await logLength()
@@ -141,7 +141,7 @@ describe('the outcome fields are a service\'s alone', () => {
   it('a service records them as given', async () => {
     const r = await call('POST', '/api/payments', makeServiceToken('stripe-service'), charge(undefined, claim))
     expect(r.status).toBe(201)
-    expect(((await r.res.json()) as { payment: { provider_ref?: string; providerRef?: string } }).payment).toMatchObject({ providerRef: 'pi_1' })
+    expect(((await r.res.json()) as { payment: { provider_ref?: string } }).payment).toMatchObject({ provider_ref: 'pi_1' })
   })
 })
 

@@ -1,15 +1,19 @@
-import type { Payment, ChargeInput } from './types.js'
+import { chargeBody, withAliases, type Payment, type PaymentFields, type ChargeInput } from './types.js'
 
 export type {
-  Payment, Provider, PaymentStatus, PaymentRow, ChargeInput,
+  Payment, PaymentFields, PaymentAliases, Provider, PaymentStatus, PaymentRow, ChargeInput, ChargeFields, ChargeFieldsDeprecated,
 } from './types.js'
 
 export interface PayClientOptions {
   /** Base URL of pay-service (e.g. PAY_SERVICE_URL). */
-  baseUrl: string
+  base_url?: string
   /** Bearer token — the caller's identity JWT. */
   token?: string
   /** Active org id — sent as X-Org-Id (pay is org-scoped, tenant = org). */
+  org_id?: string
+  /** @deprecated Read `base_url`. Accepted until the last caller has moved. */
+  baseUrl?: string
+  /** @deprecated Read `org_id`. Accepted until the last caller has moved. */
   orgId?: string
   fetch?: typeof fetch
 }
@@ -40,19 +44,22 @@ export class PayClient {
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
   constructor(private readonly opts: PayClientOptions) {
-    this.baseUrl = opts.baseUrl.replace(/\/$/, '')
+    const base = opts.base_url ?? opts.baseUrl
+    if (!base) throw new Error('PayClient needs base_url')
+    this.baseUrl = base.replace(/\/$/, '')
     this.fetchImpl = opts.fetch ?? globalThis.fetch
   }
 
   withOrg(orgId: string): PayClient {
-    return new PayClient({ ...this.opts, orgId })
+    return new PayClient({ ...this.opts, org_id: orgId, orgId })
   }
 
   private headers(json: boolean, extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = {}
     if (json) h['Content-Type'] = 'application/json'
     if (this.opts.token) h['Authorization'] = `Bearer ${this.opts.token}`
-    if (this.opts.orgId) h['X-Org-Id'] = this.opts.orgId
+    const org = this.opts.org_id ?? this.opts.orgId // deprecated spelling, read until the last caller has moved
+    if (org) h['X-Org-Id'] = org
     return { ...h, ...extra }
   }
 
@@ -84,19 +91,23 @@ export class PayClient {
     }
   }
 
-  /** Charge a customer against a provider. Idempotent by `idempotencyKey`. */
+  /**
+   * Charge a customer against a provider. Idempotent by `idempotency_key`.
+   * The camelCase spelling of the input is still accepted and is sent as snake_case.
+   */
   async charge(input: ChargeInput): Promise<Payment> {
-    return (await this.api<{ payment: Payment }>('POST', '/payments', input)).payment
+    return withAliases((await this.api<{ payment: PaymentFields }>('POST', '/payments', chargeBody(input))).payment)
   }
-  async list(opts: { status?: string; customerId?: string } = {}): Promise<Payment[]> {
+  async list(opts: { status?: string; customer_id?: string; /** @deprecated Read `customer_id`. */ customerId?: string } = {}): Promise<Payment[]> {
     const q = new URLSearchParams()
     if (opts.status) q.set('status', opts.status)
-    if (opts.customerId) q.set('customer', opts.customerId)
+    const customer = opts.customer_id ?? opts.customerId // deprecated spelling
+    if (customer) q.set('customer', customer)
     const qs = q.toString()
-    return (await this.api<{ payments: Payment[] }>('GET', `/payments${qs ? `?${qs}` : ''}`)).payments
+    return (await this.api<{ payments: PaymentFields[] }>('GET', `/payments${qs ? `?${qs}` : ''}`)).payments.map(withAliases)
   }
   async get(ref: string): Promise<Payment> {
-    return (await this.api<{ payment: Payment }>('GET', `/payments/${ref}`)).payment
+    return withAliases((await this.api<{ payment: PaymentFields }>('GET', `/payments/${encodeURIComponent(ref)}`)).payment)
   }
 }
 

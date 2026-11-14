@@ -8,8 +8,13 @@ import { defineAggregate } from '@baseworks/foldbase'
  * providers later. MONEY IS INTEGER CENTS. Tenant = org id.
  *
  * Ingest is **idempotent** (like usage metering, ADR-011): a charge's stream id is
- * derived from the caller's `idempotencyKey`, so retrying a charge never
+ * derived from the caller's `idempotency_key`, so retrying a charge never
  * double-charges. A charge resolves synchronously to `succeeded | failed`.
+ *
+ * Payload fields are snake_case (0.3.0); events written before are camelCase
+ * (`customerId`, `amountCents`, `shortId`, …) and stay so in the log: foldbase reads
+ * a snake_case path from a camelCase payload when the snake_case key is absent, so
+ * the projection folds both. A release that writes snake_case cannot be rolled back.
  */
 
 export const Provider = z.enum(['manual', 'mock', 'stripe'])
@@ -20,17 +25,17 @@ export type PaymentStatus = z.infer<typeof PaymentStatus>
 
 export const PaymentEvents = defineAggregate('payment', {
   PaymentCharged: z.object({
-    customerId: z.string().min(1),      // customers-service ref (resolved)
-    customerName: z.string(),           // snapshot for display
-    amountCents: z.number().int(),
+    customer_id: z.string().min(1),      // customers-service ref (resolved)
+    customer_name: z.string(),           // snapshot for display
+    amount_cents: z.number().int(),
     currency: z.string().length(3),
-    invoiceId: z.string(),              // optional invoice-service ref ('' = none)
+    invoice_id: z.string(),              // optional invoice-service ref ('' = none)
     provider: Provider,
-    providerRef: z.string(),            // the provider's own id for this charge
+    provider_ref: z.string(),            // the provider's own id for this charge
     status: PaymentStatus,
-    failureReason: z.string(),          // '' unless status = failed
-    idempotencyKey: z.string().min(1),  // caller idempotency key (unique per org)
-    shortId: z.string().min(1),
+    failure_reason: z.string(),          // '' unless status = failed
+    idempotency_key: z.string().min(1),  // caller idempotency key (unique per org)
+    short_id: z.string().min(1),
     at: z.number().int(),
   }),
 })

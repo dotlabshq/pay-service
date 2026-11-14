@@ -12,15 +12,15 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@baseworks/pay": "workspace:*",
+    "@baseworks/auth": "workspace:*",
     "@baseworks/core": "workspace:*",
     "@baseworks/customers": "workspace:*",
     "@baseworks/foldbase": "workspace:*",
     "@baseworks/org": "workspace:*",
+    "@baseworks/pay": "workspace:*",
     "@baseworks/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@baseworks/auth": "workspace:*",
     "@baseworks/tsconfig": "workspace:*",
     "@hono/node-server": "^1.19.14",
     "@hono/zod-validator": "^0.4.3",

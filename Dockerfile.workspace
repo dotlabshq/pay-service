@@ -22,6 +22,8 @@ COPY packages/baseworks-cli ./packages/baseworks-cli
 COPY packages/baseworks-config ./packages/baseworks-config
 COPY packages/baseworks-auth ./packages/baseworks-auth
 COPY packages/baseworks-sdk ./packages/baseworks-sdk
+# @baseworks/pay (the client) depends on @baseworks/mcp, and so does @baseworks/customers.
+COPY packages/baseworks-mcp ./packages/baseworks-mcp
 
 # @baseworks/sdk depends on the foldbase, iam and org clients, which live under
 # projects/, and the service itself uses @baseworks/org for its org middleware.
@@ -33,7 +35,10 @@ COPY projects/iam-service/package.json ./projects/iam-service/package.json
 COPY projects/iam-service/clients/ts ./projects/iam-service/clients/ts
 COPY projects/org-service/package.json ./projects/org-service/package.json
 COPY projects/org-service/clients/ts ./projects/org-service/clients/ts
-# The service resolves customers through @baseworks/customers, another workspace member.
+# The service resolves customers through @baseworks/customers, another workspace member,
+# whose client depends on @baseworks/webhooks (webhooks-service's client).
+COPY projects/webhooks-service/package.json ./projects/webhooks-service/package.json
+COPY projects/webhooks-service/clients/ts ./projects/webhooks-service/clients/ts
 COPY projects/customers-service/package.json ./projects/customers-service/package.json
 COPY projects/customers-service/clients/ts ./projects/customers-service/clients/ts
 COPY projects/pay-service/package.json ./projects/pay-service/package.json

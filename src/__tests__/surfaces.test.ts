@@ -16,7 +16,7 @@ const CUSTOMERS = { 'c-1': { id: 'c-1', name: 'Acme' } }
 
 beforeAll(async () => { fb = await bootTestFoldBase() }, 30_000)
 afterAll(async () => { await fb.stop() })
-beforeEach(async () => { orgId = newOrgId(); app = await makeTestApp(fb, orgId); restore = fakeOrgService({ [orgId]: 'owner' }, {}, CUSTOMERS) })
+beforeEach(async () => { orgId = newOrgId(); app = await makeTestApp(fb, orgId); restore = fakeOrgService({ [orgId]: 'owner' }, { customers: CUSTOMERS }) })
 afterEach(() => restore())
 
 const charge = (key: string) => ({ customerId: 'c-1', amountCents: 500, currency: 'USD', idempotencyKey: key })

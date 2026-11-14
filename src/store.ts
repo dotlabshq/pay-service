@@ -3,6 +3,7 @@ import { type FoldBase, FoldBaseError } from '@baseworks/foldbase'
 import { PaymentEvents } from '@baseworks/pay/events'
 import type { Payment, PaymentRow, Provider, PaymentStatus } from '@baseworks/pay'
 import { generateShortId } from '@baseworks/core'
+import type { EmitAudit } from '@baseworks/auth/principal'
 
 /**
  * The payment-collection domain over foldbase. Per-org (tenant = org id). A charge
@@ -11,6 +12,13 @@ import { generateShortId } from '@baseworks/core'
  * version-0 append conflicts, and the existing payment is returned (never a double
  * charge). A charge resolves synchronously against a provider. Money = integer cents.
  */
+
+/**
+ * Who caused a write, and the request it belongs to: `auditOf(c, { org_id })`
+ * from `@baseworks/auth/hono` in a route. Every store function that writes
+ * takes one; none invents an actor (workspace ADR 0004 §6).
+ */
+export type Audit = EmitAudit
 
 export class StoreError extends Error {
   constructor(readonly status: number, readonly code: string, message?: string) {
@@ -90,7 +98,7 @@ export function createStore(fb: FoldBase) {
     return res.rows.map(toPayment)
   }
   /** Idempotent charge. A repeated idempotencyKey returns the existing payment. */
-  async function charge(orgId: string, input: ChargeArgs, actor: string): Promise<Payment> {
+  async function charge(orgId: string, input: ChargeArgs, audit: Audit): Promise<Payment> {
     if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) throw new StoreError(400, 'bad_amount', 'amountCents must be a positive integer')
     const id = paymentStreamId(input.idempotencyKey)
     const existing = await getPaymentById(orgId, id)
@@ -108,7 +116,7 @@ export function createStore(fb: FoldBase) {
         amountCents: input.amountCents, currency: input.currency, invoiceId: input.invoiceId ?? '',
         provider: input.provider, providerRef: result.providerRef, status: result.status,
         failureReason: result.failureReason, idempotencyKey: input.idempotencyKey, shortId, at: Date.now(),
-      }, { actor })
+      }, audit)
     } catch (e) {
       // Concurrent charge with the same key → version-0 conflict → return the winner.
       if (!(e instanceof FoldBaseError && e.status === 409)) throw e

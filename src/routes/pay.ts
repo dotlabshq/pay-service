@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { createOrgClient, OrgError } from '@baseworks/org'
+import { requireOrg } from '@baseworks/org/hono'
 import { createCustomersClient, CustomersError } from '@baseworks/customers'
-import { requireAuth } from '../lib/auth.js'
+import { auditOf, requireAuth } from '../lib/auth.js'
+import { permit, type OrgAccess } from '../lib/org.js'
 import { StoreError, type Store } from '../store.js'
 
 const Charge = z.object({
@@ -25,52 +26,30 @@ function fail(err: unknown): never {
 }
 
 /**
- * Payment routes. Auth: identity JWT + X-Org-Id, org membership via org-service.
- * Charges resolve + snapshot the customer against customers-service.
+ * Payment routes. They are the API: app.ts mounts them under `/api`, and a
+ * gateway publishes that at `/v1/pay` by replacing the prefix (workspace ADR
+ * 0003), so the service never encodes where it is published.
  *
- * Routes live at the service ROOT. A gateway publishes the realm at
- * `/v1/pay/...` and strips that prefix (ADR-042 §4), so the service never
- * encodes where it happens to be mounted; app.ts also mounts them under `/v1`
- * for callers that predate the gateway.
+ * Every request is:
+ *   1. authenticated (`requireAuth`: a realm JWT, or an API token exchanged
+ *      for one), then
+ *   2. bound to an org via `X-Org-Id`, resolved and checked against
+ *      org-service by `requireOrg`; the org id is the foldbase tenant. Then
+ *   3. allowed or refused by permission: org-service says which of this
+ *      service's actions the caller may do there, and the route names the one
+ *      it needs. No role is named here.
+ * Charges resolve and snapshot the customer against customers-service, with
+ * the realm token this request ran on, never the raw Authorization header.
  */
-export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: string) {
+export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: string, org: OrgAccess) {
   const app = new Hono()
   app.use('*', requireAuth)
-  app.use('*', async (c, next) => {
-    // `X-Org-Id` may carry an id, a slug or a short id (ADR-042 §3), and the org
-    // id is also the storage tenant — so the header is resolved before anything
-    // is stored against it. Taken verbatim, `acme` and the org's real id would
-    // be two separate tenants for one organization, and which one you saw would
-    // depend on which client wrote last.
-    const orgRef = c.req.header('X-Org-Id')
-    if (!orgRef) return c.json({ error: 'org_required', message: 'Missing X-Org-Id — run `use <org>` first' }, 400)
-    const bearer = c.req.header('Authorization')!.slice(7)
-    // Service tokens (plane-signed, e.g. stripe-service reconciling a webhook) are
-    // trusted callers: skip the per-user membership check and act on the given org.
-    if ((c.get('auth') as { tokenType?: string } | undefined)?.tokenType === 'service') {
-      // A service skips the membership check and therefore the resolution
-      // above: it must name the org by its id.
-      c.set('orgId' as never, orgRef as never); c.set('bearer' as never, bearer as never)
-      return next()
-    }
-    const org = createOrgClient({ baseUrl: orgBaseUrl, token: bearer })
-    try {
-      const { role, via } = await org.effectiveRole(orgRef)
-      if (role === 'none') return c.json({ error: 'forbidden', message: 'Not a member of this org' }, 403)
-      c.set('orgId' as never, (via?.scope_id ?? orgRef) as never)
-      c.set('bearer' as never, bearer as never)
-    } catch (e) {
-      if (e instanceof OrgError && e.status === 404) return c.json({ error: 'org_not_found', message: 'Active org does not exist — run `use <org>`' }, 404)
-      return c.json({ error: 'authz_unavailable', message: (e as Error).message }, 502)
-    }
-    return next()
-  })
-  const orgOf = (c: { get: (k: string) => unknown }) => c.get('orgId') as string
-  const bearerOf = (c: { get: (k: string) => unknown }) => c.get('bearer') as string
-  const actorOf = (c: { get: (k: string) => unknown }) => (c.get('auth') as { userId: string }).userId
+  app.use('*', requireOrg({ base_url: orgBaseUrl }))
 
-  async function resolveCustomer(orgId: string, bearer: string, ref: string): Promise<{ id: string; name: string }> {
-    const customers = createCustomersClient({ baseUrl: customersBaseUrl, token: bearer, orgId })
+  const orgOf = (c: { get: (k: string) => unknown }) => c.get('org_id') as string
+
+  async function resolveCustomer(orgId: string, realmToken: string, ref: string): Promise<{ id: string; name: string }> {
+    const customers = createCustomersClient({ base_url: customersBaseUrl, token: realmToken, org_id: orgId })
     try {
       const cust = await customers.get(ref)
       return { id: cust.id, name: cust.name ?? '' }
@@ -80,25 +59,25 @@ export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: st
     }
   }
 
-  app.get('/payments', async (c) => {
+  app.get('/payments', permit(org, 'payment.read'), async (c) => {
     const status = c.req.query('status'); const customer = c.req.query('customer')
     return c.json({ payments: await store.listPayments(orgOf(c), { ...(status ? { status } : {}), ...(customer ? { customerId: customer } : {}) }) })
   })
-  app.get('/payments/:ref', async (c) => {
+  app.get('/payments/:ref', permit(org, 'payment.read'), async (c) => {
     const payment = await store.getPayment(orgOf(c), c.req.param('ref'))
     return payment ? c.json({ payment }) : c.json({ error: 'not_found', message: 'Payment not found' }, 404)
   })
-  app.post('/payments', zValidator('json', Charge), async (c) => {
+  app.post('/payments', permit(org, 'payment.charge'), zValidator('json', Charge), async (c) => {
     const body = c.req.valid('json')
     // The record-only outcome fields (status/providerRef/failureReason) assert that
-    // an EXTERNAL provider already collected money. Only a plane service (e.g.
-    // stripe-service reconciling a webhook) may set them — otherwise a user could
-    // forge a `succeeded` payment in the ledger.
-    const isService = (c.get('auth') as { tokenType?: string } | undefined)?.tokenType === 'service'
+    // an EXTERNAL provider already collected money. Only a realm service (e.g.
+    // stripe-service reconciling a webhook) may set them — otherwise a user, an
+    // agent or a key could forge a `succeeded` payment in the ledger.
+    const isService = c.get('principal').kind === 'service'
     if (!isService && (body.status !== undefined || body.providerRef !== undefined || body.failureReason !== undefined)) {
       return c.json({ error: 'forbidden', message: 'status/providerRef/failureReason are service-only' }, 403)
     }
-    const customer = await resolveCustomer(orgOf(c), bearerOf(c), body.customerId).catch(fail)
+    const customer = await resolveCustomer(orgOf(c), c.get('realm_token'), body.customerId).catch(fail)
     const payment = await store.charge(orgOf(c), {
       customerId: customer.id, customerName: customer.name,
       amountCents: body.amountCents, currency: body.currency,
@@ -108,7 +87,7 @@ export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: st
       ...(isService && body.status ? { status: body.status } : {}),
       ...(isService && body.providerRef ? { providerRef: body.providerRef } : {}),
       ...(isService && body.failureReason ? { failureReason: body.failureReason } : {}),
-    }, actorOf(c)).catch(fail)
+    }, auditOf(c, { org_id: orgOf(c) })).catch(fail)
     return c.json({ payment }, 201)
   })
 

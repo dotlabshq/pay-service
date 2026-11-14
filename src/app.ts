@@ -4,6 +4,7 @@ import { serviceManifest } from '@baseworks/core/service'
 import type { FoldBase } from '@baseworks/foldbase'
 import { PROJECTIONS, POLICIES } from '@baseworks/pay/projections'
 import { payRouter } from './routes/pay.js'
+import { orgAccess, type OrgAccess } from './lib/org.js'
 import { StoreError, createStore } from './store.js'
 
 export async function registerDefinitions(fb: FoldBase): Promise<void> {
@@ -32,9 +33,12 @@ const onError = (err: Error, c: Context) => {
 }
 
 /** pay-service = the payment-collection capability. `orgBaseUrl` = org-service
- *  (membership); `customersBaseUrl` = customers-service (customer resolution). */
-export function createApp(fb: FoldBase, orgBaseUrl: string, customersBaseUrl: string): Hono {
+ *  (membership, and what the caller may do: `opts.org` is built from the same
+ *  address unless a test hands one in); `customersBaseUrl` = customers-service
+ *  (customer resolution). */
+export function createApp(fb: FoldBase, orgBaseUrl: string, customersBaseUrl: string, opts: { org?: OrgAccess } = {}): Hono {
   const store = createStore(fb)
+  const org = opts.org ?? orgAccess(orgBaseUrl)
   const app = new Hono()
   app.get('/healthz', (c) => c.json({ ok: true, service: 'pay-service' }))
 
@@ -73,7 +77,7 @@ export function createApp(fb: FoldBase, orgBaseUrl: string, customersBaseUrl: st
     }
   }
 
-  const router = payRouter(store, orgBaseUrl, customersBaseUrl)
+  const router = payRouter(store, orgBaseUrl, customersBaseUrl, org)
 
   const api = new Hono()
   api.get('/.well-known/service', manifest)

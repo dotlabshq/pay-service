@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { createEnv } from '@baseworks/sdk'
 import { createApp, registerDefinitions } from './app.js'
+import { orgAccess, registerWithOrg } from './lib/org.js'
 
 const env = createEnv()
 const fb = env.service('foldbase')
@@ -20,7 +21,12 @@ const customersBaseUrl = resolveBase('customers', '/customers')
 
 const root = new Hono()
 root.use('*', logger())
-root.route('/', createApp(fb, orgBaseUrl, customersBaseUrl))
+// What a person may do here is org-service's to say. This service tells it
+// what its actions ask for, in the background: it does not wait and does not
+// fail without it, and until it succeeds people are refused.
+const org = orgAccess(orgBaseUrl)
+root.route('/', createApp(fb, orgBaseUrl, customersBaseUrl, { org }))
+void registerWithOrg(org)
 
 const port = Number(env.var('PORT') ?? 3000)
 serve({ fetch: root.fetch, port }, () => console.log(`pay-service listening on :${port}  (org PDP: ${orgBaseUrl})`))

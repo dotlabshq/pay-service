@@ -31,7 +31,7 @@ const charge = (over: Record<string, unknown> = {}, o?: { org?: string | null; t
   }, o)
 
 const arrange = (extra: Record<string, string> = {}) =>
-  fakeOrgService({ [orgId]: 'owner', ...extra }, {}, { cus_1: CUSTOMER })
+  fakeOrgService({ [orgId]: 'owner', ...extra }, { customers: { cus_1: CUSTOMER } })
 
 beforeAll(async () => { fb = await bootTestFoldBase() }, 30_000)
 afterAll(async () => { await fb.stop() })
@@ -189,7 +189,7 @@ describe('one organization, one record of what it collected', () => {
 
   it('a charge made under a slug is found under the id', async () => {
     restoreOrg()
-    restoreOrg = fakeOrgService({ [orgId]: 'owner' }, { acme: orgId }, { cus_1: CUSTOMER })
+    restoreOrg = fakeOrgService({ [orgId]: 'owner' }, { aliases: { acme: orgId }, customers: { cus_1: CUSTOMER } })
 
     await charge({}, { org: 'acme' })
     const byId = await json<{ payments: Payment[] }>(await app.get('/payments', { org: orgId }))

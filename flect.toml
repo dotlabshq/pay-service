@@ -10,3 +10,6 @@ image = "ghcr.io/dotlabshq/pay-service:0.1.0"
 [env]
 # FOLDBASE_SERVICE_URL, FOLDBASE_TOKEN — injected at deploy.
 # ORG_SERVICE_URL, CUSTOMERS_SERVICE_URL — injected via service bindings.
+# AUTH_URL, AUTH_JWKS_URI, AUTH_ISSUER, AUTH_AUDIENCE — the realm's auth-service (bwt_ exchange, token verification).
+# PAY_SERVICE_CLIENT_SECRET — this service's secret at auth-service (`pay:<secret>` in AUTH_SERVICE_CLIENTS there);
+#   with it the service registers its actions with org-service. PAY_PERMISSION_CACHE_SECONDS (15) is optional.

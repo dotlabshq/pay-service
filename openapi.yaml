@@ -5,7 +5,7 @@ info:
   description: |
     Money collected. One record per charge, scoped to an organization.
 
-    **A charge is idempotent by key.** `idempotencyKey` is hashed into the
+    **A charge is idempotent by key.** `idempotency_key` is hashed into the
     stream id, so re-sending the same key returns the charge that already
     exists rather than taking the money twice. A network that times out after
     the charge succeeded is the normal case, not the exotic one.
@@ -20,17 +20,29 @@ info:
     business; this service records what was collected.
 
     **Every request names an org.** `X-Org-Id` carries it — an id, a slug or a
-    short id — and this service asks org-service whether the caller is a member.
+    short id — and `requireOrg` asks org-service whether the caller is a member.
     The resolved org id is also the storage tenant.
 
-    Routes live at the service root; a gateway publishes them at `/v1/pay/...`
-    and strips that prefix (ADR-042 §4). `/v1` is also mounted here for callers
-    that predate the gateway.
+    **Who may.** What a caller may do is org-service's to say: this service
+    registers two actions with it, `payment.read` and `payment.charge`, and each
+    route names the one it needs (403 `forbidden`, with `permission`, when the
+    caller lacks it; 502 `authz_unavailable` when org-service cannot be asked).
+    A credential limited to `read` can never charge. The bearer is a realm token
+    or a `bwt_` API token, which is exchanged at auth-service.
+
+    **snake_case.** Every field is snake_case on the wire. Requests are still
+    read in the camelCase spelling this service used before 0.3.0
+    (`customerId`, `amountCents`, …); answers are snake_case only.
+
+    Routes live under `/api`; a gateway publishes them at `/v1/pay/...` and
+    replaces that prefix (workspace ADR 0003). The same routes are still mounted
+    at the service root and under `/v1`, as legacy aliases for callers that
+    predate `/api`. `/healthz` is at the root only.
 
 servers:
   - url: https://example.com/v1/pay
     description: Behind a gateway
-  - url: http://127.0.0.1:3011
+  - url: http://127.0.0.1:3011/api
     description: Direct, for local development
 
 tags:
@@ -67,7 +79,8 @@ paths:
       summary: List charges
       parameters:
         - { name: status, in: query, schema: { $ref: "#/components/schemas/Status" } }
-        - { name: customerId, in: query, schema: { type: string } }
+        - { name: customer_id, in: query, schema: { type: string }, description: Only this customer's payments. `customer` is the same, as it used to be. }
+        - { name: customer, in: query, schema: { type: string }, deprecated: true }
       responses:
         "200":
           description: Charges, newest first
@@ -80,17 +93,18 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Payment" }
         "400": { description: org_required — no X-Org-Id }
-        "403": { description: Not a member of this org }
+        "403": { description: Not a member of this org, or no `payment.read` }
+        "502": { description: authz_unavailable — org-service could not be asked }
     post:
       tags: [payments]
       summary: Charge
       description: |
-        Idempotent by `idempotencyKey`: the same key answers with the charge
+        Idempotent by `idempotency_key`: the same key answers with the charge
         that already exists, with the status it already had. Choose a key that
         identifies the attempt — an invoice id and a sequence, say — not a
         random one per request, or a retry becomes a second charge.
 
-        `invoiceId` is what this is being collected against, if anything.
+        `invoice_id` is what this is being collected against, if anything.
         pay-service does not check it against invoice-service; whoever is
         reconciling the two owns that.
       requestBody:
@@ -99,17 +113,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [customerId, amountCents, currency, idempotencyKey]
+              required: [customer_id, amount_cents, currency, idempotency_key]
               properties:
-                customerId:
+                customer_id:
                   type: string
                   description: A customer reference, resolved against customers-service.
-                amountCents: { type: integer, minimum: 1 }
+                amount_cents: { type: integer, minimum: 1 }
                 currency: { type: string, minLength: 3, maxLength: 3 }
-                invoiceId: { type: string }
+                invoice_id: { type: string }
                 provider: { $ref: "#/components/schemas/Provider" }
-                idempotencyKey: { type: string }
-                simulateFailure:
+                idempotency_key: { type: string }
+                simulate_failure:
                   type: boolean
                   description: Built-in providers only. Makes the charge fail, for exercising the unhappy path.
                 status:
@@ -117,8 +131,8 @@ paths:
                   description: |
                     External providers only. The outcome that already happened,
                     recorded as given.
-                providerRef: { type: string }
-                failureReason: { type: string }
+                provider_ref: { type: string }
+                failure_reason: { type: string }
       responses:
         "201":
           description: Charged — or the charge this key already made
@@ -129,13 +143,15 @@ paths:
                 properties:
                   payment: { $ref: "#/components/schemas/Payment" }
         "400": { description: Malformed body, or a non-positive amount }
-        "403": { description: |
-            `status`, `providerRef` and `failureReason` assert that money already
-            changed hands elsewhere. Only a service token may set them — a person
-            who could would be writing a succeeded payment without collecting.
-          }
+        "403":
+          description: |
+            No `payment.charge` permission (a read-only credential, a viewer),
+            or `status`, `provider_ref` and `failure_reason` set by a caller that
+            is not a service: they assert that money already changed hands
+            elsewhere, and a person, agent or key that could would be writing a
+            succeeded payment without collecting.
         "404": { description: customer_not_found }
-        "400": { description: Malformed body, or a non-positive amount }
+        "502": { description: authz_unavailable, or customers_unavailable }
 
   /payments/{ref}:
     parameters:
@@ -156,6 +172,7 @@ paths:
                 type: object
                 properties:
                   payment: { $ref: "#/components/schemas/Payment" }
+        "403": { description: Not a member of this org, or no `payment.read` }
         "404": { description: No such charge in this org }
 
 components:
@@ -176,23 +193,23 @@ components:
 
     Payment:
       type: object
-      required: [id, shortId, amountCents, currency, status, provider]
+      required: [id, short_id, amount_cents, currency, status, provider]
       properties:
         id: { type: string }
-        shortId: { type: string }
-        customerId: { type: string }
-        customerName:
+        short_id: { type: string }
+        customer_id: { type: string }
+        customer_name:
           type: [string, "null"]
           description: As it was when the charge was recorded.
-        amountCents: { type: integer }
+        amount_cents: { type: integer }
         currency: { type: string }
-        invoiceId: { type: [string, "null"] }
+        invoice_id: { type: [string, "null"] }
         provider: { $ref: "#/components/schemas/Provider" }
-        providerRef: { type: [string, "null"] }
+        provider_ref: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/Status" }
-        failureReason: { type: [string, "null"] }
-        idempotencyKey: { type: string }
-        createdAt: { type: integer }
+        failure_reason: { type: [string, "null"] }
+        idempotency_key: { type: string }
+        created_at: { type: integer }
 
     ServiceManifest:
       type: object

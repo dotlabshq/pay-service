@@ -1,10 +1,12 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { requireOrg } from '@baseworks/org/hono'
 import { createCustomersClient, CustomersError } from '@baseworks/customers'
 import { auditOf, requireAuth } from '../lib/auth.js'
 import { permit, type OrgAccess } from '../lib/org.js'
+import { readInvoice } from '../lib/invoice.js'
+import type { PaymentFields } from '@baseworks/pay'
 import { StoreError, type Store } from '../store.js'
 
 const Charge = z.object({
@@ -26,6 +28,8 @@ const Charge = z.object({
  * read the way they meant: the old names are renamed on the way in. Answers are
  * snake_case only. To be removed once no caller sends them.
  */
+const LinkInvoice = z.object({ invoice_id: z.string().min(1) })
+
 const OLD_NAMES: Record<string, string> = {
   customerId: 'customer_id', amountCents: 'amount_cents', invoiceId: 'invoice_id', idempotencyKey: 'idempotency_key',
   simulateFailure: 'simulate_failure', providerRef: 'provider_ref', failureReason: 'failure_reason',
@@ -63,7 +67,7 @@ function fail(err: unknown): never {
  * Charges resolve and snapshot the customer against customers-service, with
  * the realm token this request ran on, never the raw Authorization header.
  */
-export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: string, org: OrgAccess) {
+export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: string, org: OrgAccess, invoiceBaseUrl?: string) {
   const app = new Hono()
   app.use('*', requireAuth)
   app.use('*', requireOrg({ base_url: orgBaseUrl }))
@@ -81,13 +85,27 @@ export function payRouter(store: Store, orgBaseUrl: string, customersBaseUrl: st
     }
   }
 
+  /** The payment with the invoice it settles, read from invoice-service with this request's realm token. */
+  async function withInvoice(c: Context, payment: PaymentFields) {
+    if (!payment.invoice_id) return { ...payment, invoice: null }
+    const read = await readInvoice(invoiceBaseUrl, c.get('realm_token'), orgOf(c), payment.invoice_id)
+    return { ...payment, invoice: read.invoice, ...(read.unavailable ? { invoice_unavailable: true } : {}) }
+  }
+
   app.get('/payments', permit(org, 'payment.read'), async (c) => {
     const status = c.req.query('status'); const customer = c.req.query('customer_id') ?? c.req.query('customer')
-    return c.json({ payments: await store.listPayments(orgOf(c), { ...(status ? { status } : {}), ...(customer ? { customer_id: customer } : {}) }) })
+    const invoice = c.req.query('invoice_id')
+    return c.json({ payments: await store.listPayments(orgOf(c), { ...(status ? { status } : {}), ...(customer ? { customer_id: customer } : {}), ...(invoice ? { invoice_id: invoice } : {}) }) })
   })
   app.get('/payments/:ref', permit(org, 'payment.read'), async (c) => {
     const payment = await store.getPayment(orgOf(c), c.req.param('ref'))
-    return payment ? c.json({ payment }) : c.json({ error: 'not_found', message: 'Payment not found' }, 404)
+    if (!payment) return c.json({ error: 'not_found', message: 'Payment not found' }, 404)
+    return c.json({ payment: await withInvoice(c, payment) })
+  })
+  // Say which invoice a payment settles: once, idempotent for the same invoice, 409 `already_linked` for another.
+  app.patch('/payments/:ref/invoice', permit(org, 'payment.link_invoice'), snakeBody(LinkInvoice), async (c) => {
+    const payment = await store.linkInvoice(orgOf(c), c.req.param('ref'), c.req.valid('json').invoice_id, auditOf(c, { org_id: orgOf(c) })).catch(fail)
+    return c.json({ payment: await withInvoice(c, payment) })
   })
   app.post('/payments', permit(org, 'payment.charge'), snakeBody(Charge), async (c) => {
     const body = c.req.valid('json')

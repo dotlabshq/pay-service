@@ -1,7 +1,7 @@
 import { chargeBody, withAliases, type Payment, type PaymentFields, type ChargeInput } from './types.js'
 
 export type {
-  Payment, PaymentFields, PaymentAliases, Provider, PaymentStatus, PaymentRow, ChargeInput, ChargeFields, ChargeFieldsDeprecated,
+  Payment, PaymentFields, PaymentAliases, PaymentInvoice, PaymentWithInvoice, Provider, PaymentStatus, PaymentRow, ChargeInput, ChargeFields, ChargeFieldsDeprecated,
 } from './types.js'
 
 export interface PayClientOptions {
@@ -98,9 +98,10 @@ export class PayClient {
   async charge(input: ChargeInput): Promise<Payment> {
     return withAliases((await this.api<{ payment: PaymentFields }>('POST', '/payments', chargeBody(input))).payment)
   }
-  async list(opts: { status?: string; customer_id?: string; /** @deprecated Read `customer_id`. */ customerId?: string } = {}): Promise<Payment[]> {
+  async list(opts: { status?: string; invoice_id?: string; customer_id?: string; /** @deprecated Read `customer_id`. */ customerId?: string } = {}): Promise<Payment[]> {
     const q = new URLSearchParams()
     if (opts.status) q.set('status', opts.status)
+    if (opts.invoice_id) q.set('invoice_id', opts.invoice_id)
     const customer = opts.customer_id ?? opts.customerId // deprecated spelling
     if (customer) q.set('customer', customer)
     const qs = q.toString()
@@ -108,6 +109,13 @@ export class PayClient {
   }
   async get(ref: string): Promise<Payment> {
     return withAliases((await this.api<{ payment: PaymentFields }>('GET', `/payments/${encodeURIComponent(ref)}`)).payment)
+  }
+  /**
+   * Say which invoice a payment settles (1.1.0; permission `payment.link_invoice`). Once: the same invoice again
+   * changes nothing, another one is refused with `409 already_linked`.
+   */
+  async linkInvoice(ref: string, invoice_id: string): Promise<Payment> {
+    return withAliases((await this.api<{ payment: PaymentFields }>('PATCH', `/payments/${encodeURIComponent(ref)}/invoice`, { invoice_id })).payment)
   }
 }
 

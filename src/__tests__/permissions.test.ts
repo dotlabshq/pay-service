@@ -59,7 +59,7 @@ describe('a route asks for a permission', () => {
   })
 
   it('every route that exists is gated: an unlisted action is not invented', () => {
-    expect(Object.keys(PAY_ACTIONS)).toEqual(['payment.read', 'payment.charge'])
+    expect(Object.keys(PAY_ACTIONS)).toEqual(['payment.read', 'payment.charge', 'payment.link_invoice'])
   })
 })
 

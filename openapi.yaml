@@ -81,6 +81,7 @@ paths:
         - { name: status, in: query, schema: { $ref: "#/components/schemas/Status" } }
         - { name: customer_id, in: query, schema: { type: string }, description: Only this customer's payments. `customer` is the same, as it used to be. }
         - { name: customer, in: query, schema: { type: string }, deprecated: true }
+        - { name: invoice_id, in: query, schema: { type: string }, description: Only the payments linked to this invoice. }
       responses:
         "200":
           description: Charges, newest first
@@ -175,6 +176,42 @@ paths:
         "403": { description: Not a member of this org, or no `payment.read` }
         "404": { description: No such charge in this org }
 
+  /payments/{ref}/invoice:
+    parameters:
+      - name: ref
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [payments]
+      summary: Say which invoice a payment settles
+      description: |
+        Needs `payment.link_invoice`. The pay record is the single source of the
+        link: it is written once. The same `invoice_id` again changes nothing;
+        another is `409 already_linked`. The invoice is not checked here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoice_id]
+              properties:
+                invoice_id: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: The payment, linked, with its invoice embedded as in `GET /payments/{ref}`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment: { $ref: "#/components/schemas/Payment" }
+        "400": { description: Missing or empty invoice_id }
+        "403": { description: No `payment.link_invoice` — a read-only credential, a viewer }
+        "404": { description: No such charge in this org }
+        "409": { description: already_linked — the payment settles another invoice }
+
 components:
   securitySchemes:
     bearer:
@@ -210,6 +247,24 @@ components:
         failure_reason: { type: [string, "null"] }
         idempotency_key: { type: string }
         created_at: { type: integer }
+        invoice:
+          description: |
+            Only in `GET /payments/{ref}` and the link answer. `null` when the payment has no invoice;
+            the invoice as invoice-service shows it now otherwise; `{ id }` alone with `invoice_unavailable`
+            when it could not be read.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [id]
+              properties:
+                id: { type: string }
+                number: { type: [integer, "null"] }
+                source: { type: [string, "null"], enum: [local, stripe, manual, null] }
+                external_refs: { type: [array, "null"], items: { type: object } }
+                total_cents: { type: integer }
+                currency: { type: string }
+                payment_status: { type: [string, "null"], enum: [unpaid, partially_paid, paid, not_due, null] }
+        invoice_unavailable: { type: boolean }
 
     ServiceManifest:
       type: object

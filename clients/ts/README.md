@@ -36,14 +36,18 @@ const payment = await pay.charge({
 
 await pay.list({ status: 'succeeded' })
 await pay.list({ customer_id: 'acct-42' })
-await pay.get(payment.id)       // id, short_id or idempotency key
+await pay.get(payment.id)       // id, short_id or idempotency key; `.invoice` is the invoice it settles (1.1.0)
+await pay.list({ invoice_id: 'inv_123' })
+
+// payment recorded before its invoice was known: say which one, once (permission payment.link_invoice)
+await pay.linkInvoice(payment.id, 'inv_123')   // same invoice again: no-op; another: PayError 409 already_linked
 ```
 
 What a caller may do is decided by org-service: `payment.read` to list and get,
 `payment.charge` to charge. Errors throw `PayError` (`.status`, `.code`):
 `400 bad_amount`, `403 forbidden` (no permission; a read-only credential cannot
 charge; `status`, `provider_ref` and `failure_reason` are a service's alone),
-`404 customer_not_found`, `502 authz_unavailable`. A declined charge is **not**
+`404 customer_not_found`, `409 already_linked`, `502 authz_unavailable`. A declined charge is **not**
 an error — it returns a payment with `status: 'failed'` and a `failure_reason`.
 
 ### Deprecated names

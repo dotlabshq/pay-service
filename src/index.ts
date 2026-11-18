@@ -25,7 +25,10 @@ root.use('*', logger())
 // what its actions ask for, in the background: it does not wait and does not
 // fail without it, and until it succeeds people are refused.
 const org = orgAccess(orgBaseUrl)
-root.route('/', createApp(fb, orgBaseUrl, customersBaseUrl, { org }))
+// invoice-service is read for the invoice a payment settles; without it payments answer `invoice_unavailable`.
+const invoiceBaseUrl = process.env['INVOICE_SERVICE_URL'] ?? process.env['INVOICE_URL'] ??
+  (process.env['BASEWORKS_GATEWAY'] ? `${process.env['BASEWORKS_GATEWAY'].replace(/\/$/, '')}/invoice` : undefined)
+root.route('/', createApp(fb, orgBaseUrl, customersBaseUrl, { org, ...(invoiceBaseUrl ? { invoiceBaseUrl } : {}) }))
 void registerWithOrg(org)
 
 const port = Number(env.var('PORT') ?? 3000)

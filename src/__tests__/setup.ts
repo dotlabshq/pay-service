@@ -54,9 +54,9 @@ export function makeServiceToken(name = 'svc'): string {
 /** What a role is allowed by this service's manifest, the way org-service would answer. */
 const BY_ROLE: Record<string, string[]> = {
   viewer: ['payment.read'],
-  member: ['payment.read', 'payment.charge'],
-  admin: ['payment.read', 'payment.charge'],
-  owner: ['payment.read', 'payment.charge'],
+  member: ['payment.read', 'payment.charge', 'payment.link_invoice'],
+  admin: ['payment.read', 'payment.charge', 'payment.link_invoice'],
+  owner: ['payment.read', 'payment.charge', 'payment.link_invoice'],
 }
 
 export interface FakeOrgOptions {
@@ -64,6 +64,10 @@ export interface FakeOrgOptions {
   aliases?: Record<string, string>
   /** What customers-service knows: a reference to the customer it resolves to. Anything else is 404. */
   customers?: Record<string, { id: string; name: string }>
+  /** What invoice-service answers for `GET /invoices/:ref`, by ref. Anything else is 404. */
+  invoices?: Record<string, Record<string, unknown>>
+  /** true: invoice-service does not answer (a 503). */
+  invoiceDown?: boolean
   /** false: the app's manifest is not registered, so nobody is allowed anything. */
   registered?: boolean
   /** true: `/authz/permissions` fails, as when org-service is down mid-request. */
@@ -87,9 +91,17 @@ export function fakeOrgService(roles: Record<string, string>, o: FakeOrgOptions 
   const answer = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   const calls = { permissions: 0 }
+  const invoicesSeen: { url: string; authorization: string; org: string }[] = []
   const customersSeen: { url: string; authorization: string; org: string }[] = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    if (url.startsWith('http://invoice.test')) {
+      const headers = new Headers(init?.headers)
+      invoicesSeen.push({ url, authorization: headers.get('authorization') ?? '', org: headers.get('x-org-id') ?? '' })
+      if (o.invoiceDown) return answer({ error: 'down' }, 503)
+      const found = (o.invoices ?? {})[decodeURIComponent(url.split('/invoices/')[1] ?? '')]
+      return found ? answer({ invoice: found }) : answer({ error: 'not_found' }, 404)
+    }
     if (url.startsWith('http://customers.test')) {
       const headers = new Headers(init?.headers)
       customersSeen.push({ url, authorization: headers.get('authorization') ?? '', org: headers.get('x-org-id') ?? '' })
@@ -119,7 +131,7 @@ export function fakeOrgService(roles: Record<string, string>, o: FakeOrgOptions 
     return answer(role === 'none' ? { role: 'none' } : { role, via: { scope_id: scope, scope_kind: 'org' } })
   }) as typeof fetch
   const restore = () => { globalThis.fetch = realFetch }
-  return Object.assign(restore, { calls, customers: customersSeen })
+  return Object.assign(restore, { calls, customers: customersSeen, invoices: invoicesSeen })
 }
 
 /**
@@ -131,7 +143,7 @@ export async function makeTestApp(fb: TestFoldBase, orgId: string, o: { permissi
   await registerDefinitions(client)
   // No answer is remembered between requests: each test sets its own org-service.
   process.env['PAY_PERMISSION_CACHE_SECONDS'] = String(o.permission_cache_seconds ?? 0)
-  const app = createApp(client, 'http://org.test', 'http://customers.test')
+  const app = createApp(client, 'http://org.test', 'http://customers.test', { invoiceBaseUrl: 'http://invoice.test' })
 
   function req(method: string, path: string, body?: unknown, o: { token?: string; org?: string | null } = {}) {
     const headers: Record<string, string> = {

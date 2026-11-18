@@ -38,4 +38,9 @@ export const PaymentEvents = defineAggregate('payment', {
     short_id: z.string().min(1),
     at: z.number().int(),
   }),
+  // Added in 1.1.0: the payment is said to settle this invoice (once; the pay record is the one source of the link).
+  PaymentInvoiceLinked: z.object({
+    invoice_id: z.string().min(1),
+    at: z.number().int(),
+  }),
 })

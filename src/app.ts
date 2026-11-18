@@ -36,7 +36,7 @@ const onError = (err: Error, c: Context) => {
  *  (membership, and what the caller may do: `opts.org` is built from the same
  *  address unless a test hands one in); `customersBaseUrl` = customers-service
  *  (customer resolution). */
-export function createApp(fb: FoldBase, orgBaseUrl: string, customersBaseUrl: string, opts: { org?: OrgAccess } = {}): Hono {
+export function createApp(fb: FoldBase, orgBaseUrl: string, customersBaseUrl: string, opts: { org?: OrgAccess; invoiceBaseUrl?: string } = {}): Hono {
   const store = createStore(fb)
   const org = opts.org ?? orgAccess(orgBaseUrl)
   const app = new Hono()
@@ -77,7 +77,7 @@ export function createApp(fb: FoldBase, orgBaseUrl: string, customersBaseUrl: st
     }
   }
 
-  const router = payRouter(store, orgBaseUrl, customersBaseUrl, org)
+  const router = payRouter(store, orgBaseUrl, customersBaseUrl, org, opts.invoiceBaseUrl)
 
   const api = new Hono()
   api.get('/.well-known/service', manifest)

@@ -60,7 +60,27 @@ export interface PaymentAliases {
   readonly createdAt: number
 }
 
-export type Payment = PaymentFields & PaymentAliases
+/**
+ * The invoice a payment settles, as invoice-service shows it now (1.1.0). Read, never stored here.
+ * `source`, `external_refs` and `payment_status` are null when the invoice-service in use does not answer them yet.
+ */
+export interface PaymentInvoice {
+  id: string
+  number: number | null
+  source: 'local' | 'stripe' | 'manual' | null
+  external_refs: Array<{ system: string; id: string; number?: string; url?: string; pdf_url?: string; account_id?: string; livemode?: boolean }> | null
+  total_cents: number
+  currency: string
+  payment_status: 'unpaid' | 'partially_paid' | 'paid' | 'not_due' | null
+}
+
+/** What `GET /payments/:ref` adds (1.1.0): the invoice, or `{ id }` and `invoice_unavailable` when invoice-service could not answer. */
+export interface PaymentWithInvoice {
+  invoice?: PaymentInvoice | { id: string } | null
+  invoice_unavailable?: boolean
+}
+
+export type Payment = PaymentFields & PaymentAliases & PaymentWithInvoice
 
 export interface ChargeFields {
   /** Customer ref (id / short_id / external_id) — resolved via customers-service. */

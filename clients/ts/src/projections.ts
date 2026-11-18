@@ -22,6 +22,10 @@ export const readPayments = defineProjection('payments', PaymentEvents, (on) => 
     short_id: e.short_id,
     created_at: e.at,
   })),
+  // Only the link changes; every other column of the row stays.
+  PaymentInvoiceLinked: on.PaymentInvoiceLinked.upsert((e) => ({
+    invoice_id: e.invoice_id,
+  })),
 }))
 
 export const PROJECTIONS = [readPayments] as const

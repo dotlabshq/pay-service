@@ -89,11 +89,12 @@ export function createStore(fb: FoldBase) {
   async function getPayment(orgId: string, ref: string): Promise<PaymentFields | null> {
     const r = await paymentRowByRef(orgId, ref); return r ? toPayment(r) : null
   }
-  async function listPayments(orgId: string, opts: { status?: string; customer_id?: string } = {}): Promise<PaymentFields[]> {
+  async function listPayments(orgId: string, opts: { status?: string; customer_id?: string; invoice_id?: string } = {}): Promise<PaymentFields[]> {
     const { q } = scoped(orgId)
     const where: Record<string, { eq: string }> = {}
     if (opts.status) where['status'] = { eq: opts.status }
     if (opts.customer_id) where['customer_id'] = { eq: opts.customer_id }
+    if (opts.invoice_id) where['invoice_id'] = { eq: opts.invoice_id }
     const res = await q.query<PaymentRow>('payments', { ...(Object.keys(where).length ? { where } : {}), sort: ['-created_at'], limit: 1000 })
     return res.rows.map(toPayment)
   }
@@ -124,5 +125,31 @@ export function createStore(fb: FoldBase) {
     return (await getPaymentById(orgId, id))!
   }
 
-  return { charge, listPayments, getPayment }
+  /**
+   * Say which invoice a payment settles. The pay record is the one source of the link: it is written once, here.
+   * The same invoice again changes nothing; a different one is `already_linked`. A payment charged with an
+   * `invoice_id` is linked from the start.
+   */
+  async function linkInvoice(orgId: string, ref: string, invoice_id: string, audit: Audit): Promise<PaymentFields> {
+    const { q, payments } = scoped(orgId)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const row = await paymentRowByRef(orgId, ref)
+      if (!row) throw new StoreError(404, 'not_found', 'Payment not found')
+      if (row.invoice_id) {
+        if (row.invoice_id === invoice_id) return toPayment(row)
+        throw new StoreError(409, 'already_linked', `Payment is already linked to invoice ${row.invoice_id}`)
+      }
+      const { version } = await q.streamVersion(row.id)
+      try {
+        await payments.emit(row.id, version, 'PaymentInvoiceLinked', { invoice_id, at: Date.now() }, audit)
+      } catch (e) {
+        if (e instanceof FoldBaseError && e.status === 409) continue // changed meanwhile: read it again and decide
+        throw e
+      }
+      return (await getPaymentById(orgId, row.id))!
+    }
+    throw new StoreError(409, 'conflict', 'Payment changed concurrently — retry')
+  }
+
+  return { charge, listPayments, getPayment, linkInvoice }
 }

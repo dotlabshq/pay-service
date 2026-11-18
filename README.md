@@ -47,9 +47,10 @@ All routes require `Authorization: Bearer <realm token or bwt_ API token>` +
 
 | Method | Path (under `/api`) | Permission | |
 |---|---|---|---|
-| `GET` | `/payments` | `payment.read` | list (`?status`, `?customer_id`, or `?customer`) |
-| `GET` | `/payments/:ref` | `payment.read` | one payment (id / short_id / idempotency_key) |
+| `GET` | `/payments` | `payment.read` | list (`?status`, `?customer_id` or `?customer`, `?invoice_id`) |
+| `GET` | `/payments/:ref` | `payment.read` | one payment (id / short_id / idempotency_key), with its `invoice` embedded (1.1.0) |
 | `POST` | `/payments` | `payment.charge` | charge a customer (resolves the customer, idempotent) |
+| `PATCH` | `/payments/:ref/invoice` | `payment.link_invoice` | say which invoice a payment settles: once, idempotent, 409 `already_linked` (1.1.0) |
 | `GET` | `/.well-known/service` · `/openapi.yaml` | none | as every service |
 
 ## Who may (workspace ADR 0004)
@@ -64,8 +65,8 @@ proves who is calling and `requireOrg` (from `@baseworks/org`) resolves
   while org-service is not up. Until that has succeeded nobody is allowed
   anything: closed, not open. If org-service cannot be asked the answer is
   `502 authz_unavailable`, never yes.
-- The manifest's actions: `payment.read` (min role `viewer`, access `read`) and
-  `payment.charge` (min role `member`, access `write`). A read-only credential
+- The manifest's actions: `payment.read` (min role `viewer`, access `read`),
+  `payment.charge` and `payment.link_invoice` (min role `member`, access `write`). A read-only credential
   (a read API token, a read agent, a read organization key) can read and never
   charge; org-service answers for the credential, not only for the role.
 - A permission answer is remembered for `PAY_PERMISSION_CACHE_SECONDS` (15)
@@ -81,6 +82,22 @@ proves who is calling and `requireOrg` (from `@baseworks/org`) resolves
   event's `actor` is `user:<id>`, `agent:<name>@<handle>`,
   `machine:<key>@<org>` or `service:<name>`, and `metadata.audit` says who, how
   (session, token, key), for whom, through which surface and for which request.
+
+## The invoice a payment settles (1.1.0)
+
+The pay record is the **single source** of the payment→invoice link: `invoice_id`
+on the payment, set when it is charged or once afterwards with
+`PATCH /payments/:ref/invoice` (event `PaymentInvoiceLinked`). The same invoice
+again is a no-op; another one is `409 already_linked`. pay does not check that
+the invoice exists when linking.
+
+`GET /payments/:ref` shows the invoice: `invoice: null` when there is none, else
+`{ id, number, source, external_refs, total_cents, currency, payment_status }`,
+read from invoice-service (`GET /invoices/:ref`, with this request's realm token)
+every time and never stored here. `source`, `external_refs` and `payment_status`
+are null until invoice-service 1.1.0. If invoice-service cannot be read the
+payment still answers, with `invoice: { id }` and `invoice_unavailable: true`.
+The list does not embed invoices; filter it with `?invoice_id=`.
 
 ## An outcome is asserted by whoever collected it
 
@@ -126,6 +143,7 @@ id.
 | `FOLDBASE_SERVICE_URL`, `FOLDBASE_TOKEN` | the shared foldbase (injected at deploy) |
 | `ORG_SERVICE_URL` | org-service's own address, not a gateway's: membership, permissions, registration |
 | `CUSTOMERS_SERVICE_URL` | customers-service, to resolve the customer of a charge |
+| `INVOICE_SERVICE_URL` | invoice-service, to show the invoice a payment settles (optional: unset, payments answer `invoice_unavailable`) |
 | `AUTH_URL` | auth-service's API: accepts `bwt_` API tokens (the exchange) and issues this service's own token |
 | `AUTH_JWKS_URI`, `AUTH_ISSUER`, `AUTH_AUDIENCE` | verify realm tokens; `JWT_SECRET` is the legacy shared secret, accepted while set |
 | `PAY_SERVICE_CLIENT_ID` | the name it registers as and calls as; default `pay` |

@@ -32,6 +32,8 @@ export const PAY_ACTIONS = {
   'payment.read': { min_role: 'viewer', access: 'read' },
   // Charging: records money collected. Idempotent by key, but it writes.
   'payment.charge': { min_role: 'member', access: 'write' },
+  // Saying which invoice a payment settles, when it was recorded before the invoice was known. Once.
+  'payment.link_invoice': { min_role: 'member', access: 'write' },
 } as const
 
 export type PayAction = keyof typeof PAY_ACTIONS

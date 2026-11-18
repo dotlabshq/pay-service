@@ -74,4 +74,21 @@ describe('PayClient', () => {
       .rejects.toMatchObject({ status: 404, code: 'customer_not_found', message: 'nope', name: 'PayError' })
     expect(new PayError(400, 'bad_amount')).toBeInstanceOf(Error)
   })
+
+  it('linkInvoice PATCHes the invoice link and returns the payment with its aliases; list filters by invoice_id', async () => {
+    const f = fake(200, { payment: { ...ROW, invoice_id: 'inv-1', invoice: { id: 'inv-1', number: 3 } } })
+    const pay = createPayClient({ base_url: 'http://pay.test', fetch: f.fetch })
+    const p = await pay.linkInvoice('p 1', 'inv-1')
+    expect(f.seen[0]).toMatchObject({ url: 'http://pay.test/payments/p%201/invoice', method: 'PATCH', body: { invoice_id: 'inv-1' } })
+    expect(p.invoiceId).toBe('inv-1')
+    expect(p.invoice).toEqual({ id: 'inv-1', number: 3 })
+    const g = fake(200, { payments: [] })
+    await createPayClient({ base_url: 'http://pay.test', fetch: g.fetch }).list({ invoice_id: 'inv-1', status: 'succeeded' })
+    expect(g.seen[0]!.url).toBe('http://pay.test/payments?status=succeeded&invoice_id=inv-1')
+  })
+
+  it('already_linked is a PayError with its status', async () => {
+    const f = fake(409, { error: 'already_linked', message: 'linked' })
+    await expect(createPayClient({ base_url: 'http://pay.test', fetch: f.fetch }).linkInvoice('p-1', 'inv-2')).rejects.toMatchObject({ status: 409, code: 'already_linked' })
+  })
 })

@@ -1,6 +1,6 @@
 {
   "name": "@baseworks/pay",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Payments capability: typed HTTP client, event catalog, projections, and CLI plugin for pay-service (idempotent charges against a pluggable provider). Contract-first, versioned with the service.",
   "type": "module",
   "publishConfig": {
